@@ -1,0 +1,6 @@
+{
+  "name": "Delivery Admin",
+  "description": "Enterprise admin control panel for the delivery platform managing orders, stores, drivers, customers, products, and categories.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
