@@ -16,6 +16,12 @@ import com.example.data.model.SystemSettings
 import com.example.data.model.User
 import com.example.data.model.UserRole
 import com.example.data.model.UserStatus
+import com.example.data.supabase.SupabaseRestClient
+import com.example.data.supabase.SupabaseSessionProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +68,158 @@ class AdminRepository {
         )
         _currentAdmin.value = admin
         return admin
+    }
+
+    private val supabase = SupabaseRestClient()
+
+    private suspend fun rows(path: String): JSONArray {
+        val session = SupabaseSessionProvider.session
+            ?: throw IllegalStateException("جلسة الإدارة غير متاحة.")
+        return JSONArray(supabase.rest(path, accessToken = session.accessToken).getOrThrow())
+    }
+
+    suspend fun refreshFromSupabase(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val userRows = rows("rest/v1/profiles?select=id,full_name,phone,role,is_active,created_at&order=created_at.desc")
+            _users.value = (0 until userRows.length()).map { i ->
+                val row = userRows.getJSONObject(i)
+                User(
+                    id = row.optString("id"),
+                    name = row.optString("full_name").ifBlank { "مستخدم وصّل" },
+                    email = row.optString("phone"),
+                    phone = row.optString("phone"),
+                    role = when (row.optString("role")) {
+                        "admin" -> UserRole.ADMIN
+                        "merchant" -> UserRole.STORE
+                        "driver" -> UserRole.DRIVER
+                        else -> UserRole.CUSTOMER
+                    },
+                    status = if (row.optBoolean("is_active", false)) UserStatus.ACTIVE else UserStatus.INACTIVE,
+                    createdAt = row.optString("created_at"),
+                )
+            }
+
+            val storeRows = rows("rest/v1/stores?select=*,category:categories(name_ar)&order=created_at.desc")
+            _stores.value = (0 until storeRows.length()).map { i ->
+                val row = storeRows.getJSONObject(i)
+                Store(
+                    id = row.optString("id"),
+                    nameEn = row.optString("name_en"),
+                    nameAr = row.optString("name_ar"),
+                    ownerName = row.optString("owner_id"),
+                    categoryName = row.optJSONObject("category")?.optString("name_ar").orEmpty(),
+                    phone = row.optString("phone"),
+                    address = row.optString("address_text"),
+                    isOpen = row.optBoolean("is_open", false),
+                    isActive = row.optBoolean("is_active", false),
+                    totalOrders = 0,
+                    rating = 0.0,
+                )
+            }
+
+            val categoryRows = rows("rest/v1/categories?select=id,name_en,name_ar,sort_order&order=sort_order.asc")
+            _categories.value = (0 until categoryRows.length()).map { i ->
+                val row = categoryRows.getJSONObject(i)
+                Category(
+                    id = row.optString("id"),
+                    nameEn = row.optString("name_en"),
+                    nameAr = row.optString("name_ar"),
+                    iconName = "storefront",
+                    isActive = true,
+                    storeCount = _stores.value.count { store -> store.categoryName == row.optString("name_ar") },
+                )
+            }
+
+            val driverRows = rows("rest/v1/driver_profiles?select=*,profile:profiles!driver_profiles_profile_id_fkey(full_name,phone,is_active)")
+            _drivers.value = (0 until driverRows.length()).map { i ->
+                val row = driverRows.getJSONObject(i)
+                val profile = row.optJSONObject("profile")
+                val active = profile?.optBoolean("is_active", false) ?: false
+                Driver(
+                    id = row.optString("profile_id"),
+                    name = profile?.optString("full_name").orEmpty().ifBlank { "مندوب وصّل" },
+                    phone = profile?.optString("phone").orEmpty(),
+                    availability = when {
+                        !active -> DriverAvailability.OFFLINE
+                        row.optBoolean("is_available", false) -> DriverAvailability.AVAILABLE
+                        else -> DriverAvailability.BUSY
+                    },
+                    isActive = active,
+                    currentOrderId = null,
+                    completedDeliveries = 0,
+                    vehicleType = row.optString("vehicle_type").ifBlank { "Motorcycle" },
+                    rating = 0.0,
+                )
+            }
+
+            val productRows = rows("rest/v1/products?select=*,store:stores(name_ar)&order=created_at.desc")
+            _products.value = (0 until productRows.length()).map { i ->
+                val row = productRows.getJSONObject(i)
+                Product(
+                    id = row.optString("id"),
+                    storeId = row.optString("store_id"),
+                    storeName = row.optJSONObject("store")?.optString("name_ar").orEmpty(),
+                    categoryId = row.optString("category"),
+                    categoryName = row.optString("category"),
+                    nameEn = row.optString("name_en"),
+                    nameAr = row.optString("name_ar"),
+                    price = row.optDouble("price"),
+                    isAvailable = row.optBoolean("is_available", false) && row.optInt("stock_quantity", 0) > 0,
+                    isActive = true,
+                    description = row.optString("description"),
+                )
+            }
+
+            val orderRows = rows("rest/v1/orders?select=*,store:stores(name_ar),order_items(*)&order=placed_at.desc")
+            _orders.value = (0 until orderRows.length()).map { i ->
+                val row = orderRows.getJSONObject(i)
+                val itemRows = row.optJSONArray("order_items") ?: JSONArray()
+                val items = (0 until itemRows.length()).map { itemIndex ->
+                    val item = itemRows.getJSONObject(itemIndex)
+                    val name = item.optString("product_name_snapshot")
+                    OrderItem(
+                        productId = item.optString("product_id").takeIf { it != "null" }.orEmpty(),
+                        productNameEn = name,
+                        productNameAr = name,
+                        quantity = item.optInt("quantity", 1),
+                        unitPrice = item.optDouble("unit_price"),
+                        totalPrice = item.optDouble("unit_price") * item.optInt("quantity", 1),
+                    )
+                }
+                val status = when (row.optString("status")) {
+                    "confirmed" -> OrderStatus.ACCEPTED
+                    "preparing" -> OrderStatus.PREPARING
+                    "ready_for_pickup", "driver_assigned" -> OrderStatus.READY
+                    "picked_up" -> OrderStatus.PICKED_UP
+                    "on_the_way" -> OrderStatus.ON_THE_WAY
+                    "delivered" -> OrderStatus.DELIVERED
+                    "cancelled" -> if (row.optString("cancellation_reason").contains("رفض")) OrderStatus.REJECTED else OrderStatus.CANCELLED
+                    else -> OrderStatus.NEW
+                }
+                Order(
+                    id = row.optString("id"),
+                    orderNumber = "WAS-" + row.optLong("order_number"),
+                    customerId = row.optString("customer_id"),
+                    customerName = row.optString("customer_name_snapshot").ifBlank { "عميل وصّل" },
+                    customerPhone = row.optString("customer_phone_snapshot"),
+                    storeId = row.optString("store_id"),
+                    storeName = row.optJSONObject("store")?.optString("name_ar")
+                        ?: row.optString("store_name_snapshot"),
+                    driverId = row.optString("driver_id").takeIf { it != "null" && it.isNotBlank() },
+                    driverName = null,
+                    items = items,
+                    subtotal = row.optDouble("subtotal"),
+                    deliveryFee = row.optDouble("delivery_fee"),
+                    total = row.optDouble("total"),
+                    address = row.optString("delivery_address_snapshot"),
+                    status = status,
+                    createdAt = row.optString("placed_at"),
+                    updatedAt = row.optString("updated_at"),
+                    paymentMethod = row.optString("payment_method"),
+                    notes = row.optString("customer_notes"),
+                )
+            }
+        }
     }
 
     fun authenticate(email: String, pass: String): Result<AdminUser> {
