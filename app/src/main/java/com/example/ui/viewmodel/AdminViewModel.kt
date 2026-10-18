@@ -52,7 +52,7 @@ class AdminViewModel(
     val isArabic: StateFlow<Boolean> = _isArabic.asStateFlow()
 
     // Auth state
-    private val _loginEmail = MutableStateFlow("admin@deliveryplatform.com")
+    private val _loginEmail = MutableStateFlow("")
     val loginEmail: StateFlow<String> = _loginEmail.asStateFlow()
 
     private val _loginPassword = MutableStateFlow("")
