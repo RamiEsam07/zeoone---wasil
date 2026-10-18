@@ -220,6 +220,14 @@ class AdminViewModel(
         _loginError.value = null
     }
 
+    fun loginWithSupabase(userId: String, email: String) {
+        repository.acceptSupabaseAdmin(userId, email)
+        screenBackStack.clear()
+        refreshDashboardMetrics()
+        _currentScreen.value = AdminScreen.DASHBOARD
+        _loginError.value = null
+    }
+
     fun login() {
         _isAuthenticating.value = true
         _loginError.value = null
