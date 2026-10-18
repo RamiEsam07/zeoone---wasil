@@ -283,43 +283,14 @@ class AdminRepository {
         }
     }
 
-    fun authenticate(email: String, pass: String): Result<AdminUser> {
-        val configuredEmail = try {
-            BuildConfig.ADMIN_EMAIL.ifBlank { "admin@deliveryplatform.com" }
-        } catch (_: Exception) {
-            "admin@deliveryplatform.com"
-        }
-
-        val configuredPassword = try {
-            BuildConfig.ADMIN_PASSWORD.ifBlank { "AdminMaster2026!" }
-        } catch (_: Exception) {
-            "AdminMaster2026!"
-        }
-
-        // Strict validation: Credentials match configured env/secret
-        if (email.trim().equals(configuredEmail.trim(), ignoreCase = true) && pass == configuredPassword) {
-            val adminUser = AdminUser(
-                id = "usr-adm-001",
-                name = "Chief Operations Officer",
-                email = configuredEmail,
-                role = UserRole.ADMIN,
-                token = "adm_tok_${UUID.randomUUID()}"
-            )
-            _currentAdmin.value = adminUser
-            NetworkClient.setAuthToken(adminUser.token)
-            return Result.success(adminUser)
-        }
-
-        // Check if user exists in user database with a different role to show RBAC violation
-        val matchedUser = _users.value.find { it.email.equals(email.trim(), ignoreCase = true) }
-        if (matchedUser != null && matchedUser.role != UserRole.ADMIN) {
-            return Result.failure(
-                SecurityException("Access Denied: Account '${matchedUser.email}' has role '${matchedUser.role}'. Only users with ADMIN role can access this command center.")
-            )
-        }
-
-        return Result.failure(IllegalArgumentException("Invalid admin credentials. Please verify your email and password."))
-    }
+    /**
+     * Local/demo password authentication is intentionally disabled.
+     * Admin access must be established by Supabase Google Auth and the server-owned profile role.
+     */
+    fun authenticate(email: String, pass: String): Result<AdminUser> =
+        Result.failure(
+            SecurityException("استخدم تسجيل الدخول عبر Google المرتبط بـSupabase؛ تسجيل الدخول المحلي غير مفعّل.")
+        )
 
     fun logout() {
         _currentAdmin.value = null
