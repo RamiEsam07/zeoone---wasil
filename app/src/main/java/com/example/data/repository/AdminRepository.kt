@@ -67,6 +67,12 @@ class AdminRepository {
             token = "",
         )
         _currentAdmin.value = admin
+        _users.value = emptyList()
+        _stores.value = emptyList()
+        _drivers.value = emptyList()
+        _orders.value = emptyList()
+        _products.value = emptyList()
+        _categories.value = emptyList()
         return admin
     }
 
@@ -94,13 +100,19 @@ class AdminRepository {
 
     suspend fun refreshFromSupabase(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            _users.value = emptyList()
+            _stores.value = emptyList()
+            _drivers.value = emptyList()
+            _orders.value = emptyList()
+            _products.value = emptyList()
+            _categories.value = emptyList()
             val userRows = rows("rest/v1/profiles?select=id,full_name,phone,role,is_active,created_at&order=created_at.desc")
             _users.value = (0 until userRows.length()).map { i ->
                 val row = userRows.getJSONObject(i)
                 User(
                     id = row.optString("id"),
                     name = row.optString("full_name").ifBlank { "مستخدم وصّل" },
-                    email = row.optString("phone"),
+                    email = "",
                     phone = row.optString("phone"),
                     role = when (row.optString("role")) {
                         "admin" -> UserRole.ADMIN
@@ -120,7 +132,7 @@ class AdminRepository {
                     id = row.optString("id"),
                     nameEn = row.optString("name_en"),
                     nameAr = row.optString("name_ar"),
-                    ownerName = row.optString("owner_id"),
+                    ownerName = _users.value.firstOrNull { it.id == row.optString("owner_id") }?.name.orEmpty(),
                     categoryName = row.optJSONObject("category")?.optString("name_ar").orEmpty(),
                     phone = row.optString("phone"),
                     address = row.optString("address_text"),
@@ -131,7 +143,7 @@ class AdminRepository {
                 )
             }
 
-            val categoryRows = rows("rest/v1/categories?select=id,name_en,name_ar,sort_order&order=sort_order.asc")
+            val categoryRows = rows("rest/v1/categories?select=id,name_en,name_ar,sort_order,is_active&order=sort_order.asc")
             _categories.value = (0 until categoryRows.length()).map { i ->
                 val row = categoryRows.getJSONObject(i)
                 Category(
@@ -139,7 +151,7 @@ class AdminRepository {
                     nameEn = row.optString("name_en"),
                     nameAr = row.optString("name_ar"),
                     iconName = "storefront",
-                    isActive = true,
+                    isActive = row.optBoolean("is_active", true),
                     storeCount = _stores.value.count { store -> store.categoryName == row.optString("name_ar") },
                 )
             }
@@ -156,7 +168,7 @@ class AdminRepository {
                     availability = when {
                         !active -> DriverAvailability.OFFLINE
                         row.optBoolean("is_available", false) -> DriverAvailability.AVAILABLE
-                        else -> DriverAvailability.BUSY
+                        else -> DriverAvailability.OFFLINE
                     },
                     isActive = active,
                     currentOrderId = null,
@@ -179,7 +191,7 @@ class AdminRepository {
                     nameAr = row.optString("name_ar"),
                     price = row.optDouble("price"),
                     isAvailable = row.optBoolean("is_available", false) && row.optInt("stock_quantity", 0) > 0,
-                    isActive = true,
+                    isActive = row.optBoolean("is_active", true),
                     description = row.optString("description"),
                 )
             }
@@ -232,6 +244,17 @@ class AdminRepository {
                     paymentMethod = row.optString("payment_method"),
                     notes = row.optString("customer_notes"),
                 )
+            }
+            val activeDriverIds = _orders.value.filter {
+                it.status == OrderStatus.ACCEPTED || it.status == OrderStatus.PREPARING ||
+                    it.status == OrderStatus.READY || it.status == OrderStatus.PICKED_UP ||
+                    it.status == OrderStatus.ON_THE_WAY
+            }.mapNotNull { it.driverId }.toSet()
+            _drivers.value = _drivers.value.map { driver ->
+                if (driver.id in activeDriverIds) driver.copy(availability = DriverAvailability.BUSY) else driver
+            }
+            _stores.value = _stores.value.map { store ->
+                store.copy(totalOrders = _orders.value.count { it.storeId == store.id })
             }
         }
     }
