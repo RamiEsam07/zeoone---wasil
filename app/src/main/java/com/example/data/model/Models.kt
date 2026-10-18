@@ -166,7 +166,7 @@ data class AdminUser(
     val name: String,
     val email: String,
     val role: UserRole = UserRole.ADMIN,
-    val token: String = "adm_tok_secure_session_2026",
+    val token: String = "",
     val permissions: List<String> = listOf("ALL", "ORDERS", "USERS", "STORES", "DRIVERS", "SETTINGS")
 )
 
