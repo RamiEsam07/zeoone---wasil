@@ -113,13 +113,13 @@ class AdminRepository {
             _orders.value = emptyList()
             _products.value = emptyList()
             _categories.value = emptyList()
-            val userRows = rows("rest/v1/profiles?select=id,full_name,phone,role,is_active,created_at&order=created_at.desc")
+            val userRows = rows("rest/v1/profiles?select=id,full_name,email,phone,role,is_active,created_at&order=created_at.desc")
             _users.value = (0 until userRows.length()).map { i ->
                 val row = userRows.getJSONObject(i)
                 User(
                     id = row.optString("id"),
                     name = row.optString("full_name").ifBlank { "مستخدم وصّل" },
-                    email = "",
+                    email = row.optString("email"),
                     phone = row.optString("phone"),
                     role = when (row.optString("role")) {
                         "admin" -> UserRole.ADMIN
