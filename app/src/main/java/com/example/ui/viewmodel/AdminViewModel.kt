@@ -223,9 +223,15 @@ class AdminViewModel(
     fun loginWithSupabase(userId: String, email: String) {
         repository.acceptSupabaseAdmin(userId, email)
         screenBackStack.clear()
-        refreshDashboardMetrics()
         _currentScreen.value = AdminScreen.DASHBOARD
         _loginError.value = null
+        viewModelScope.launch {
+            val loaded = repository.refreshFromSupabase()
+            if (loaded.isFailure) {
+                _loginError.value = loaded.exceptionOrNull()?.message ?: "تعذر تحميل بيانات الإدارة من Supabase."
+            }
+            refreshDashboardMetrics()
+        }
     }
 
     fun login() {
