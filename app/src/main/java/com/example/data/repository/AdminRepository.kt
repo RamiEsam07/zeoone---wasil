@@ -245,6 +245,19 @@ class AdminRepository {
                     notes = row.optString("customer_notes"),
                 )
             }
+            val settingsJson = JSONObject(rpc("wasil_admin_get_settings", JSONObject()))
+            _settings.value = SystemSettings(
+                commissionRatePercent = settingsJson.optDouble("commission_rate_percent", 12.5),
+                baseDeliveryFee = settingsJson.optDouble("base_delivery_fee", 0.0),
+                feePerKm = settingsJson.optDouble("fee_per_km", 0.0),
+                taxRatePercent = settingsJson.optDouble("tax_rate_percent", 0.0),
+                autoAssignDrivers = settingsJson.optBoolean("auto_assign_drivers", false),
+                maxDeliveryRadiusKm = settingsJson.optDouble("max_delivery_radius_km", 25.0),
+                maintenanceMode = settingsJson.optBoolean("maintenance_mode", false),
+                currencySymbol = settingsJson.optString("currency_symbol", "SDG"),
+                isArabicRtl = settingsJson.optBoolean("is_arabic_rtl", true),
+            )
+
             val activeDriverIds = _orders.value.filter {
                 it.status == OrderStatus.ACCEPTED || it.status == OrderStatus.PREPARING ||
                     it.status == OrderStatus.READY || it.status == OrderStatus.PICKED_UP ||
@@ -518,8 +531,20 @@ class AdminRepository {
     }
 
     suspend fun updateSettings(settings: SystemSettings) {
-        _settings.value = settings
-        try { apiService.updateSettings(settings) } catch (_: Exception) {}
+        rpc(
+            "wasil_admin_update_settings",
+            JSONObject().put("p_settings", JSONObject()
+                .put("commission_rate_percent", settings.commissionRatePercent)
+                .put("base_delivery_fee", settings.baseDeliveryFee)
+                .put("fee_per_km", settings.feePerKm)
+                .put("tax_rate_percent", settings.taxRatePercent)
+                .put("auto_assign_drivers", settings.autoAssignDrivers)
+                .put("max_delivery_radius_km", settings.maxDeliveryRadiusKm)
+                .put("maintenance_mode", settings.maintenanceMode)
+                .put("currency_symbol", settings.currencySymbol)
+                .put("is_arabic_rtl", settings.isArabicRtl)),
+        )
+        refreshFromSupabase()
     }
 
     // Initial database seeds ensuring platform technical connection
