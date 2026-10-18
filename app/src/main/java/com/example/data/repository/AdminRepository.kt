@@ -53,6 +53,17 @@ class AdminRepository {
     private val _currentAdmin = MutableStateFlow<AdminUser?>(null)
     val currentAdmin: StateFlow<AdminUser?> = _currentAdmin.asStateFlow()
 
+    fun acceptSupabaseAdmin(userId: String, email: String): AdminUser {
+        val admin = AdminUser(
+            id = userId,
+            name = email.substringBefore("@").ifBlank { "WASIL Admin" },
+            email = email,
+            token = "",
+        )
+        _currentAdmin.value = admin
+        return admin
+    }
+
     fun authenticate(email: String, pass: String): Result<AdminUser> {
         val configuredEmail = try {
             BuildConfig.ADMIN_EMAIL.ifBlank { "admin@deliveryplatform.com" }
