@@ -149,15 +149,15 @@ data class DashboardMetrics(
 
 @JsonClass(generateAdapter = true)
 data class SystemSettings(
-    val commissionRatePercent: Double = 12.5,
-    val baseDeliveryFee: Double = 3.50,
-    val feePerKm: Double = 0.75,
-    val taxRatePercent: Double = 5.0,
-    val autoAssignDrivers: Boolean = true,
+    val commissionRatePercent: Double = 0.0,
+    val baseDeliveryFee: Double = 0.00,
+    val feePerKm: Double = 0.0,
+    val taxRatePercent: Double = 0.0,
+    val autoAssignDrivers: Boolean = false,
     val maxDeliveryRadiusKm: Double = 25.0,
     val maintenanceMode: Boolean = false,
-    val currencySymbol: String = "$",
-    val isArabicRtl: Boolean = false
+    val currencySymbol: String = "SDG",
+    val isArabicRtl: Boolean = true
 )
 
 @JsonClass(generateAdapter = true)
