@@ -1,6 +1,5 @@
 package com.example.data.repository
 
-import com.example.BuildConfig
 import com.example.data.api.NetworkClient
 import com.example.data.model.AdminUser
 import com.example.data.model.Category
@@ -28,11 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 class AdminRepository {
-
-    private val apiService = NetworkClient.apiService
 
     // In-memory synchronized platform database state
     private val _users = MutableStateFlow<List<User>>(initialUsers())
