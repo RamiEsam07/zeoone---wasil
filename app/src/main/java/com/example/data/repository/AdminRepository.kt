@@ -73,9 +73,23 @@ class AdminRepository {
     private val supabase = SupabaseRestClient()
 
     private suspend fun rows(path: String): JSONArray {
-        val session = SupabaseSessionProvider.session
+        val session = SupabaseSessionProvider.validSessionOrNull()
             ?: throw IllegalStateException("جلسة الإدارة غير متاحة.")
         return JSONArray(supabase.rest(path, accessToken = session.accessToken).getOrThrow())
+    }
+
+    private suspend fun rpc(path: String, body: JSONObject): String {
+        val session = SupabaseSessionProvider.validSessionOrNull()
+            ?: throw IllegalStateException("جلسة الإدارة غير متاحة.")
+        return supabase.rest("rest/v1/rpc/" + path, method = "POST", body = body.toString(),
+            accessToken = session.accessToken).getOrThrow().trim()
+    }
+
+    private fun UserRole.toSupabaseRole(): String = when (this) {
+        UserRole.CUSTOMER -> "customer"
+        UserRole.STORE -> "merchant"
+        UserRole.DRIVER -> "driver"
+        UserRole.ADMIN -> "admin"
     }
 
     suspend fun refreshFromSupabase(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -297,208 +311,189 @@ class AdminRepository {
     }
 
     suspend fun updateOrderStatus(orderId: String, newStatus: OrderStatus, driverId: String? = null): Order? {
-        val nowTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-        val currentOrders = _orders.value.toMutableList()
-        val index = currentOrders.indexOfFirst { it.id == orderId }
-        if (index == -1) return null
-
-        val currentOrder = currentOrders[index]
-        val assignedDriver = if (driverId != null) {
-            _drivers.value.find { it.id == driverId }
-        } else {
-            currentOrder.driverId?.let { did -> _drivers.value.find { it.id == did } }
-        }
-
-        val updatedOrder = currentOrder.copy(
-            status = newStatus,
-            driverId = assignedDriver?.id ?: currentOrder.driverId,
-            driverName = assignedDriver?.name ?: currentOrder.driverName,
-            updatedAt = nowTime
-        )
-        currentOrders[index] = updatedOrder
-        _orders.value = currentOrders
-
-        // If driver assigned or status changed, sync driver availability
-        if (assignedDriver != null) {
-            val driverList = _drivers.value.toMutableList()
-            val dIndex = driverList.indexOfFirst { it.id == assignedDriver.id }
-            if (dIndex != -1) {
-                val newAvailability = when (newStatus) {
-                    OrderStatus.PICKED_UP, OrderStatus.ON_THE_WAY -> DriverAvailability.BUSY
-                    OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED -> DriverAvailability.AVAILABLE
-                    else -> driverList[dIndex].availability
-                }
-                val completedCount = if (newStatus == OrderStatus.DELIVERED) {
-                    driverList[dIndex].completedDeliveries + 1
-                } else driverList[dIndex].completedDeliveries
-
-                driverList[dIndex] = driverList[dIndex].copy(
-                    availability = newAvailability,
-                    currentOrderId = if (newStatus.isActiveOrder()) orderId else null,
-                    completedDeliveries = completedCount
-                )
-                _drivers.value = driverList
+        if (driverId != null && newStatus == OrderStatus.READY) return assignDriver(orderId, driverId)
+        val result = runCatching {
+            when (newStatus) {
+                OrderStatus.ACCEPTED -> rpc("wasil_merchant_update_order_status",
+                    JSONObject().put("p_order_id", orderId).put("p_next_status", "confirmed"))
+                OrderStatus.PREPARING -> rpc("wasil_merchant_update_order_status",
+                    JSONObject().put("p_order_id", orderId).put("p_next_status", "preparing"))
+                OrderStatus.READY -> rpc("wasil_merchant_update_order_status",
+                    JSONObject().put("p_order_id", orderId).put("p_next_status", "ready_for_pickup"))
+                OrderStatus.CANCELLED, OrderStatus.REJECTED -> rpc("wasil_cancel_order",
+                    JSONObject().put("p_order_id", orderId)
+                        .put("p_reason", if (newStatus == OrderStatus.REJECTED) "رفض الطلب من الإدارة" else "إلغاء من الإدارة"))
+                else -> throw IllegalArgumentException("تحديث الاستلام والتوصيل النهائي يتم عبر تطبيق المندوب.")
             }
         }
-
-        // Try syncing with remote API in background
-        try {
-            apiService.updateOrder(orderId, updatedOrder)
-        } catch (_: Exception) {
-            // Graceful fallback to synchronized repository state
-        }
-
-        return updatedOrder
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _orders.value.firstOrNull { it.id == orderId }
     }
 
     suspend fun assignDriver(orderId: String, driverId: String): Order? {
-        val driver = _drivers.value.find { it.id == driverId } ?: return null
-        return updateOrderStatus(orderId, OrderStatus.PICKED_UP, driverId)
+        val result = runCatching {
+            rpc("wasil_admin_assign_driver", JSONObject().put("p_order_id", orderId).put("p_driver_id", driverId))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _orders.value.firstOrNull { it.id == orderId }
     }
 
     suspend fun toggleUserStatus(userId: String): User? {
-        val list = _users.value.toMutableList()
-        val index = list.indexOfFirst { it.id == userId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(
-            status = if (current.status == UserStatus.ACTIVE) UserStatus.INACTIVE else UserStatus.ACTIVE
-        )
-        list[index] = updated
-        _users.value = list
-        try { apiService.updateUser(userId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _users.value.firstOrNull { it.id == userId } ?: return null
+        val nextActive = current.status != UserStatus.ACTIVE
+        val result = runCatching {
+            rpc("wasil_admin_set_user_access", JSONObject().put("p_user_id", userId)
+                .put("p_role", current.role.toSupabaseRole()).put("p_is_active", nextActive))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _users.value.firstOrNull { it.id == userId }
     }
 
     suspend fun updateUser(updatedUser: User): User {
-        val list = _users.value.toMutableList()
-        val index = list.indexOfFirst { it.id == updatedUser.id }
-        if (index != -1) {
-            list[index] = updatedUser
-            _users.value = list
+        val current = _users.value.firstOrNull { it.id == updatedUser.id } ?: return updatedUser
+        val session = SupabaseSessionProvider.validSessionOrNull() ?: return current
+        val result = runCatching {
+            supabase.rest("rest/v1/profiles?id=eq." + updatedUser.id, method = "PATCH",
+                body = JSONObject().put("full_name", updatedUser.name).put("phone", updatedUser.phone).toString(),
+                accessToken = session.accessToken).getOrThrow()
+            rpc("wasil_admin_set_user_access", JSONObject().put("p_user_id", updatedUser.id)
+                .put("p_role", updatedUser.role.toSupabaseRole())
+                .put("p_is_active", updatedUser.status == UserStatus.ACTIVE))
         }
-        try { apiService.updateUser(updatedUser.id, updatedUser) } catch (_: Exception) {}
-        return updatedUser
+        if (result.isFailure) return current
+        refreshFromSupabase()
+        return _users.value.firstOrNull { it.id == updatedUser.id } ?: updatedUser
     }
 
     suspend fun toggleStoreStatus(storeId: String): Store? {
-        val list = _stores.value.toMutableList()
-        val index = list.indexOfFirst { it.id == storeId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(isActive = !current.isActive)
-        list[index] = updated
-        _stores.value = list
-        try { apiService.updateStore(storeId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _stores.value.firstOrNull { it.id == storeId } ?: return null
+        val result = runCatching {
+            rpc("wasil_admin_set_store_active",
+                JSONObject().put("p_store_id", storeId).put("p_is_active", !current.isActive))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _stores.value.firstOrNull { it.id == storeId }
     }
 
     suspend fun toggleStoreOpen(storeId: String): Store? {
-        val list = _stores.value.toMutableList()
-        val index = list.indexOfFirst { it.id == storeId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(isOpen = !current.isOpen)
-        list[index] = updated
-        _stores.value = list
-        try { apiService.updateStore(storeId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _stores.value.firstOrNull { it.id == storeId } ?: return null
+        val session = SupabaseSessionProvider.validSessionOrNull() ?: return null
+        val result = runCatching {
+            supabase.rest("rest/v1/stores?id=eq." + storeId, method = "PATCH",
+                body = JSONObject().put("is_open", !current.isOpen).toString(),
+                accessToken = session.accessToken).getOrThrow()
+        }
+        if (result.isFailure) return null
+        refreshFromSupabase()
+        return _stores.value.firstOrNull { it.id == storeId }
     }
 
     suspend fun updateStore(updatedStore: Store): Store {
-        val list = _stores.value.toMutableList()
-        val index = list.indexOfFirst { it.id == updatedStore.id }
-        if (index != -1) {
-            list[index] = updatedStore
-            _stores.value = list
+        val current = _stores.value.firstOrNull { it.id == updatedStore.id } ?: return updatedStore
+        val session = SupabaseSessionProvider.validSessionOrNull() ?: return current
+        val result = runCatching {
+            supabase.rest("rest/v1/stores?id=eq." + updatedStore.id, method = "PATCH",
+                body = JSONObject().put("name_en", updatedStore.nameEn)
+                    .put("name_ar", updatedStore.nameAr).put("phone", updatedStore.phone)
+                    .put("address_text", updatedStore.address).put("is_open", updatedStore.isOpen).toString(),
+                accessToken = session.accessToken).getOrThrow()
+            if (updatedStore.isActive != current.isActive) {
+                rpc("wasil_admin_set_store_active",
+                    JSONObject().put("p_store_id", updatedStore.id).put("p_is_active", updatedStore.isActive))
+            }
         }
-        try { apiService.updateStore(updatedStore.id, updatedStore) } catch (_: Exception) {}
-        return updatedStore
+        if (result.isFailure) return current
+        refreshFromSupabase()
+        return _stores.value.firstOrNull { it.id == updatedStore.id } ?: updatedStore
     }
 
     suspend fun toggleDriverStatus(driverId: String): Driver? {
-        val list = _drivers.value.toMutableList()
-        val index = list.indexOfFirst { it.id == driverId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(isActive = !current.isActive)
-        list[index] = updated
-        _drivers.value = list
-        try { apiService.updateDriver(driverId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _drivers.value.firstOrNull { it.id == driverId } ?: return null
+        val result = runCatching {
+            rpc("wasil_admin_set_user_access", JSONObject().put("p_user_id", driverId)
+                .put("p_role", "driver").put("p_is_active", !current.isActive))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _drivers.value.firstOrNull { it.id == driverId }
     }
 
     suspend fun setDriverAvailability(driverId: String, availability: DriverAvailability): Driver? {
-        val list = _drivers.value.toMutableList()
-        val index = list.indexOfFirst { it.id == driverId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(availability = availability)
-        list[index] = updated
-        _drivers.value = list
-        try { apiService.updateDriver(driverId, updated) } catch (_: Exception) {}
-        return updated
+        val result = runCatching {
+            rpc("wasil_admin_set_driver_availability", JSONObject().put("p_driver_id", driverId)
+                .put("p_is_available", availability == DriverAvailability.AVAILABLE))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return null
+        refreshFromSupabase()
+        return _drivers.value.firstOrNull { it.id == driverId }
     }
 
     suspend fun createCategory(nameEn: String, nameAr: String, iconName: String): Category {
-        val newCat = Category(
-            id = "cat-${System.currentTimeMillis()}",
-            nameEn = nameEn,
-            nameAr = nameAr,
-            iconName = iconName,
-            isActive = true,
-            storeCount = 0
-        )
-        val list = _categories.value.toMutableList()
-        list.add(newCat)
-        _categories.value = list
-        try { apiService.createCategory(newCat) } catch (_: Exception) {}
-        return newCat
+        val slug = nameEn.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            .ifBlank { "category-" + System.currentTimeMillis() }
+        val result = rpc("wasil_admin_upsert_category",
+            JSONObject().put("p_category_id", JSONObject.NULL).put("p_name_ar", nameAr)
+                .put("p_name_en", nameEn).put("p_slug", slug).put("p_sort_order", _categories.value.size + 1))
+        refreshFromSupabase()
+        return _categories.value.firstOrNull { it.id == result.trim('"') }
+            ?: Category(result.trim('"'), nameEn, nameAr, iconName, true, 0)
     }
 
     suspend fun updateCategory(category: Category): Category {
-        val list = _categories.value.toMutableList()
-        val index = list.indexOfFirst { it.id == category.id }
-        if (index != -1) {
-            list[index] = category
-            _categories.value = list
+        val current = _categories.value.firstOrNull { it.id == category.id } ?: return category
+        val slug = category.nameEn.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        val result = runCatching {
+            rpc("wasil_admin_upsert_category", JSONObject().put("p_category_id", category.id)
+                .put("p_name_ar", category.nameAr).put("p_name_en", category.nameEn)
+                .put("p_slug", slug).put("p_sort_order", _categories.value.indexOf(current) + 1))
         }
-        try { apiService.updateCategory(category.id, category) } catch (_: Exception) {}
-        return category
+        if (result.isFailure) return current
+        refreshFromSupabase()
+        return _categories.value.firstOrNull { it.id == category.id } ?: category
     }
 
     suspend fun deleteCategory(categoryId: String): Boolean {
-        val list = _categories.value.toMutableList()
-        val index = list.indexOfFirst { it.id == categoryId }
-        if (index == -1) return false
-        list.removeAt(index)
-        _categories.value = list
-        try { apiService.deleteCategory(categoryId) } catch (_: Exception) {}
+        val result = runCatching {
+            rpc("wasil_admin_set_category_active",
+                JSONObject().put("p_category_id", categoryId).put("p_is_active", false))
+        }
+        if (result.isFailure || result.getOrNull() != "true") return false
+        refreshFromSupabase()
         return true
     }
 
     suspend fun toggleProductAvailability(productId: String): Product? {
-        val list = _products.value.toMutableList()
-        val index = list.indexOfFirst { it.id == productId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(isAvailable = !current.isAvailable)
-        list[index] = updated
-        _products.value = list
-        try { apiService.updateProduct(productId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _products.value.firstOrNull { it.id == productId } ?: return null
+        val session = SupabaseSessionProvider.validSessionOrNull() ?: return null
+        if (!current.isAvailable) {
+            val stockRows = runCatching { rows("rest/v1/products?select=stock_quantity&id=eq." + productId) }.getOrNull()
+            if (stockRows == null || stockRows.length() == 0 || stockRows.getJSONObject(0).optInt("stock_quantity") <= 0) return null
+        }
+        val result = runCatching {
+            supabase.rest("rest/v1/products?id=eq." + productId, method = "PATCH",
+                body = JSONObject().put("is_available", !current.isAvailable).toString(),
+                accessToken = session.accessToken).getOrThrow()
+        }
+        if (result.isFailure) return null
+        refreshFromSupabase()
+        return _products.value.firstOrNull { it.id == productId }
     }
 
     suspend fun toggleProductActive(productId: String): Product? {
-        val list = _products.value.toMutableList()
-        val index = list.indexOfFirst { it.id == productId }
-        if (index == -1) return null
-        val current = list[index]
-        val updated = current.copy(isActive = !current.isActive)
-        list[index] = updated
-        _products.value = list
-        try { apiService.updateProduct(productId, updated) } catch (_: Exception) {}
-        return updated
+        val current = _products.value.firstOrNull { it.id == productId } ?: return null
+        val session = SupabaseSessionProvider.validSessionOrNull() ?: return null
+        val result = runCatching {
+            supabase.rest("rest/v1/products?id=eq." + productId, method = "PATCH",
+                body = JSONObject().put("is_active", !current.isActive).toString(),
+                accessToken = session.accessToken).getOrThrow()
+        }
+        if (result.isFailure) return null
+        refreshFromSupabase()
+        return _products.value.firstOrNull { it.id == productId }
     }
 
     suspend fun updateSettings(settings: SystemSettings) {
