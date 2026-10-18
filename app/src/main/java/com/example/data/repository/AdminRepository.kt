@@ -508,13 +508,11 @@ class AdminRepository {
 
     suspend fun toggleProductActive(productId: String): Product? {
         val current = _products.value.firstOrNull { it.id == productId } ?: return null
-        val session = SupabaseSessionProvider.validSessionOrNull() ?: return null
         val result = runCatching {
-            supabase.rest("rest/v1/products?id=eq." + productId, method = "PATCH",
-                body = JSONObject().put("is_active", !current.isActive).toString(),
-                accessToken = session.accessToken).getOrThrow()
+            rpc("wasil_admin_set_product_active",
+                JSONObject().put("p_product_id", productId).put("p_is_active", !current.isActive))
         }
-        if (result.isFailure) return null
+        if (result.isFailure || result.getOrNull() != "true") return null
         refreshFromSupabase()
         return _products.value.firstOrNull { it.id == productId }
     }
