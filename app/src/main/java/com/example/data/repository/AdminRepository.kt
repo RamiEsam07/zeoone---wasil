@@ -73,6 +73,17 @@ class AdminRepository {
         _orders.value = emptyList()
         _products.value = emptyList()
         _categories.value = emptyList()
+        _settings.value = SystemSettings(
+            commissionRatePercent = 0.0,
+            baseDeliveryFee = 0.0,
+            feePerKm = 0.0,
+            taxRatePercent = 0.0,
+            autoAssignDrivers = false,
+            maxDeliveryRadiusKm = 25.0,
+            maintenanceMode = false,
+            currencySymbol = "SDG",
+            isArabicRtl = true,
+        )
         return admin
     }
 
