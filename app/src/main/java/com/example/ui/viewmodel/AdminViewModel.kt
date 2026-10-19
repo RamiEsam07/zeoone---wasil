@@ -52,7 +52,7 @@ class AdminViewModel(
     val isArabic: StateFlow<Boolean> = _isArabic.asStateFlow()
 
     // Auth state
-    private val _loginEmail = MutableStateFlow("admin@deliveryplatform.com")
+    private val _loginEmail = MutableStateFlow("")
     val loginEmail: StateFlow<String> = _loginEmail.asStateFlow()
 
     private val _loginPassword = MutableStateFlow("")
@@ -218,6 +218,26 @@ class AdminViewModel(
     fun updateLoginPassword(password: String) {
         _loginPassword.value = password
         _loginError.value = null
+    }
+
+    fun loginWithSupabase(userId: String, email: String) {
+        repository.acceptSupabaseAdmin(userId, email)
+        screenBackStack.clear()
+        _currentScreen.value = AdminScreen.DASHBOARD
+        _loginError.value = null
+        viewModelScope.launch {
+            val loaded = repository.refreshFromSupabase()
+            if (loaded.isFailure) {
+                _loginError.value = loaded.exceptionOrNull()?.message ?: "تعذر تحميل بيانات الإدارة من Supabase."
+            }
+            refreshDashboardMetrics()
+        }
+    }
+
+    suspend fun refreshSupabaseNow() {
+        repository.refreshFromSupabase().onSuccess {
+            refreshDashboardMetrics()
+        }
     }
 
     fun login() {

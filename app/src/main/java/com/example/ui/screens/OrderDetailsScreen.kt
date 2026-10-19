@@ -557,13 +557,13 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                                     color = Slate900
                                 )
                                 Text(
-                                    text = "${item.quantity} x $${String.format("%.2f", item.unitPrice)}",
+                                    text = "${item.quantity} x SDG ${String.format("%.2f", item.unitPrice)}",
                                     fontSize = 12.sp,
                                     color = Slate400
                                 )
                             }
                             Text(
-                                text = "$${String.format("%.2f", item.totalPrice)}",
+                                text = "SDG ${String.format("%.2f", item.totalPrice)}",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
                                 color = Slate900
@@ -581,7 +581,7 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(text = AdminStrings.tr(isArabic, "Subtotal", "المجموع الفرعي"), fontSize = 13.sp, color = Slate600)
-                        Text(text = "$${String.format("%.2f", order.subtotal)}", fontSize = 13.sp, color = Slate700)
+                        Text(text = "SDG ${String.format("%.2f", order.subtotal)}", fontSize = 13.sp, color = Slate700)
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -592,12 +592,51 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(text = AdminStrings.tr(isArabic, "Delivery Fee", "رسوم التوصيل"), fontSize = 13.sp, color = Slate600)
-                        Text(text = "$${String.format("%.2f", order.deliveryFee)}", fontSize = 13.sp, color = Slate700)
+                        Text(text = "SDG ${String.format("%.2f", order.deliveryFee)}", fontSize = 13.sp, color = Slate700)
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
                     HorizontalDivider(color = Slate200)
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    if (order.serviceFee > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(AdminStrings.tr(isArabic, "Service fee", "رسوم الخدمة"), fontSize = 13.sp, color = Slate600)
+                            Text("SDG ${String.format("%.2f", order.serviceFee)}", fontSize = 13.sp, color = Slate700)
+                        }
+                    }
+                    if (order.taxAmount > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(AdminStrings.tr(isArabic, "Tax", "الضريبة"), fontSize = 13.sp, color = Slate600)
+                            Text("SDG ${String.format("%.2f", order.taxAmount)}", fontSize = 13.sp, color = Slate700)
+                        }
+                    }
+
+                    // Platform commission is an internal merchant-side amount, not a customer charge.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = AdminStrings.tr(isArabic, "Platform commission (merchant)", "عمولة المنصة على المتجر"),
+                            fontSize = 13.sp,
+                            color = Slate600,
+                        )
+                        Text(
+                            text = "SDG ${String.format("%.2f", order.platformCommissionAmount)}",
+                            fontSize = 13.sp,
+                            color = Slate700,
+                        )
+                    }
 
                     // Total
                     Row(
@@ -612,7 +651,7 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                             color = Slate900
                         )
                         Text(
-                            text = "$${String.format("%.2f", order.total)}",
+                            text = "SDG ${String.format("%.2f", order.total)}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = BrandBlueDark
