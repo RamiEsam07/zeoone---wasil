@@ -107,12 +107,8 @@ class AdminRepository {
 
     suspend fun refreshFromSupabase(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            _users.value = emptyList()
-            _stores.value = emptyList()
-            _drivers.value = emptyList()
-            _orders.value = emptyList()
-            _products.value = emptyList()
-            _categories.value = emptyList()
+            // Keep the last known dashboard visible while refreshing; a transient network
+            // failure must not erase the admin's current view.
             val userRows = rows("rest/v1/profiles?select=id,full_name,email,phone,role,is_active,created_at&order=created_at.desc")
             _users.value = (0 until userRows.length()).map { i ->
                 val row = userRows.getJSONObject(i)
@@ -254,7 +250,7 @@ class AdminRepository {
             }
             val settingsJson = JSONObject(rpc("wasil_admin_get_settings", JSONObject()))
             _settings.value = SystemSettings(
-                commissionRatePercent = settingsJson.optDouble("commission_rate_percent", 12.5),
+                commissionRatePercent = settingsJson.optDouble("commission_rate_percent", 0.0),
                 baseDeliveryFee = settingsJson.optDouble("base_delivery_fee", 0.0),
                 feePerKm = settingsJson.optDouble("fee_per_km", 0.0),
                 taxRatePercent = settingsJson.optDouble("tax_rate_percent", 0.0),
