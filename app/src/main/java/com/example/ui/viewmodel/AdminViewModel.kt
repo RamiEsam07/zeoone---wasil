@@ -234,6 +234,12 @@ class AdminViewModel(
         }
     }
 
+    suspend fun refreshSupabaseNow() {
+        repository.refreshFromSupabase().onSuccess {
+            refreshDashboardMetrics()
+        }
+    }
+
     fun login() {
         _isAuthenticating.value = true
         _loginError.value = null
