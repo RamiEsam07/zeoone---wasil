@@ -240,6 +240,7 @@ class AdminRepository {
                     subtotal = row.optDouble("subtotal"),
                     deliveryFee = row.optDouble("delivery_fee"),
                     total = row.optDouble("total"),
+                    platformCommissionAmount = row.optDouble("platform_commission_amount", 0.0),
                     address = row.optString("delivery_address_snapshot"),
                     status = status,
                     createdAt = row.optString("placed_at"),
