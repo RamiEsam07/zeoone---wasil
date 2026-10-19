@@ -124,6 +124,7 @@ data class Order(
     val subtotal: Double,
     val deliveryFee: Double,
     val total: Double,
+    val platformCommissionAmount: Double = 0.0,
     val address: String,
     val status: OrderStatus,
     val createdAt: String,
