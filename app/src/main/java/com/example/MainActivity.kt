@@ -268,6 +268,18 @@ private fun SupabaseAdminAuthGate(
         }
     }
 
+    // Keep the admin view current without overwriting an in-progress settings form.
+    LaunchedEffect(currentScreen, session) {
+        if (session != null && currentScreen != AdminScreen.LOGIN &&
+            currentScreen != AdminScreen.SETTINGS
+        ) {
+            while (true) {
+                delay(15_000)
+                runCatching { viewModel.refreshSupabaseNow() }
+            }
+        }
+    }
+
     if (session != null) {
         content()
     } else {
