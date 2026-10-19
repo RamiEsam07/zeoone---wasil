@@ -407,21 +407,22 @@ class AdminRepository {
 
     suspend fun updateStore(updatedStore: Store): Store {
         val current = _stores.value.firstOrNull { it.id == updatedStore.id } ?: return updatedStore
-        val session = SupabaseSessionProvider.validSessionOrNull() ?: return current
         val result = runCatching {
-            supabase.rest("rest/v1/stores?id=eq." + updatedStore.id, method = "PATCH",
-                body = JSONObject().put("name_en", updatedStore.nameEn)
-                    .put("name_ar", updatedStore.nameAr).put("phone", updatedStore.phone)
-                    .put("address_text", updatedStore.address).put("is_open", updatedStore.isOpen).toString(),
-                accessToken = session.accessToken).getOrThrow()
-            if (updatedStore.isActive != current.isActive) {
-                rpc("wasil_admin_set_store_active",
-                    JSONObject().put("p_store_id", updatedStore.id).put("p_is_active", updatedStore.isActive))
-            }
+            rpc(
+                "wasil_admin_update_store",
+                JSONObject()
+                    .put("p_store_id", updatedStore.id)
+                    .put("p_name_en", updatedStore.nameEn)
+                    .put("p_name_ar", updatedStore.nameAr)
+                    .put("p_phone", updatedStore.phone)
+                    .put("p_address_text", updatedStore.address)
+                    .put("p_is_open", updatedStore.isOpen)
+                    .put("p_is_active", updatedStore.isActive),
+            )
         }
-        if (result.isFailure) return current
+        if (result.isFailure || result.getOrNull() != "true") return current
         refreshFromSupabase()
-        return _stores.value.firstOrNull { it.id == updatedStore.id } ?: updatedStore
+        return _stores.value.firstOrNull { it.id == updatedStore.id } ?: current
     }
 
     suspend fun toggleDriverStatus(driverId: String): Driver? {
