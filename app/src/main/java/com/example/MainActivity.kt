@@ -268,10 +268,13 @@ private fun SupabaseAdminAuthGate(
         }
     }
 
-    // Keep the admin view current without overwriting an in-progress settings form.
+    // Poll read-focused screens only; never refresh over an in-progress edit form.
     LaunchedEffect(currentScreen, session) {
-        if (session != null && currentScreen != AdminScreen.LOGIN &&
-            currentScreen != AdminScreen.SETTINGS
+        if (session != null && (
+                currentScreen == AdminScreen.DASHBOARD ||
+                currentScreen == AdminScreen.ORDERS ||
+                currentScreen == AdminScreen.ORDER_DETAILS
+            )
         ) {
             while (true) {
                 delay(15_000)
