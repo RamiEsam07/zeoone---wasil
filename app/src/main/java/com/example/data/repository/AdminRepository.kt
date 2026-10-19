@@ -310,7 +310,7 @@ class AdminRepository {
 
         return DashboardMetrics(
             totalOrders = allOrders.size,
-            todayOrders = if (todayOrders == 0) (allOrders.size * 0.45).toInt().coerceAtLeast(3) else todayOrders,
+            todayOrders = todayOrders,
             activeOrders = activeOrders,
             deliveredOrders = deliveredOrders,
             cancelledOrders = cancelledOrders,
