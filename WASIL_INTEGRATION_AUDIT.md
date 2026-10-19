@@ -11,7 +11,7 @@
 - Build configuration reads Supabase URL, publishable key, and Google Web OAuth client ID from local properties. Never embed a service-role/secret key in the client.
 
 ## Findings requiring follow-up
-- The admin repository performs some multi-step edits as separate requests. For example, updating a store can PATCH editable fields and then call the activation RPC; if the second request fails, the first change may already have persisted. Make these edits atomic through a narrowly authorized RPC or provide explicit partial-failure recovery before release.
+- Fixed in the audit branch (pending validation/deployment): `updateStore` now calls the atomic `wasil_admin_update_store` RPC instead of separate PATCH + approval requests. The matching draft migration is `202610170008_admin_update_store_atomic.sql` in the customer repository. The migration and admin app change must be reviewed and released together; the RPC has not been applied to live Supabase.
 - The admin UI must treat every repository result as fallible and display failure feedback; a successful-looking form must not imply that a rejected RLS/RPC operation was saved.
 
 ## Not yet verified
