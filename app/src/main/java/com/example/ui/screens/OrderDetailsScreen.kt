@@ -599,6 +599,24 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                     HorizontalDivider(color = Slate200)
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // Platform commission is an internal merchant-side amount, not a customer charge.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = AdminStrings.tr(isArabic, "Platform commission (merchant)", "عمولة المنصة على المتجر"),
+                            fontSize = 13.sp,
+                            color = Slate600,
+                        )
+                        Text(
+                            text = "SDG ${String.format("%.2f", order.platformCommissionAmount)}",
+                            fontSize = 13.sp,
+                            color = Slate700,
+                        )
+                    }
+
                     // Total
                     Row(
                         modifier = Modifier.fillMaxWidth(),
