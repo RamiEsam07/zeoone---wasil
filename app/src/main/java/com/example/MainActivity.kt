@@ -1,6 +1,26 @@
 package com.example
 
 import android.os.Bundle
+import android.app.Activity
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.supabase.SupabaseRoleAuthenticator
+import com.example.data.supabase.SupabaseSession
+import com.example.data.supabase.SupabaseSessionProvider
+import com.example.ui.viewmodel.AdminScreen
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -11,12 +31,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,17 +79,20 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.Slate200
 import com.example.ui.theme.Slate900
 import com.example.ui.util.AdminStrings
-import com.example.ui.viewmodel.AdminScreen
 import com.example.ui.viewmodel.AdminViewModel
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+    private val adminViewModel: AdminViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                AdminAppRoot()
+                SupabaseAdminAuthGate(viewModel = adminViewModel) {
+                    AdminAppRoot(viewModel = adminViewModel)
+                }
             }
         }
     }
@@ -209,6 +227,110 @@ fun AdminAppRoot(viewModel: AdminViewModel = viewModel()) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun SupabaseAdminAuthGate(
+    viewModel: AdminViewModel,
+    content: @Composable () -> Unit,
+) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val authenticator = remember(context) { SupabaseRoleAuthenticator(context, "admin") }
+    val scope = rememberCoroutineScope()
+    val currentScreen by viewModel.currentScreen.collectAsState()
+    var session by remember { mutableStateOf<SupabaseSession?>(null) }
+    var restoring by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(authenticator) {
+        val restored = authenticator.restore()
+        if (restored.isSuccess) {
+            session = restored.getOrNull()
+            SupabaseSessionProvider.session = session
+            session?.let { viewModel.loginWithSupabase(it.userId, it.email.orEmpty()) }
+        } else {
+            errorMessage = restored.exceptionOrNull()?.message
+        }
+        restoring = false
+    }
+
+    LaunchedEffect(currentScreen, session) {
+        if (session != null && currentScreen == AdminScreen.LOGIN) {
+            authenticator.signOut(session)
+            SupabaseSessionProvider.session = null
+            session = null
+        }
+    }
+
+    // Poll read-focused screens only; never refresh over an in-progress edit form.
+    LaunchedEffect(currentScreen, session) {
+        if (session != null && (
+                currentScreen == AdminScreen.DASHBOARD ||
+                currentScreen == AdminScreen.ORDERS ||
+                currentScreen == AdminScreen.ORDER_DETAILS
+            )
+        ) {
+            while (true) {
+                delay(15_000)
+                runCatching { viewModel.refreshSupabaseNow() }
+            }
+        }
+    }
+
+    if (session != null) {
+        content()
+    } else {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("لوحة إدارة وصّل", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Text("الدخول متاح لحسابات الإدارة المفعّلة فقط.")
+            Spacer(Modifier.height(24.dp))
+            if (restoring || loading) {
+                CircularProgressIndicator()
+            } else {
+                Button(
+                    enabled = authenticator.isConfigured() && activity != null,
+                    onClick = {
+                        val hostActivity = activity ?: return@Button
+                        scope.launch {
+                            loading = true
+                            errorMessage = null
+                            val result = authenticator.signIn(hostActivity)
+                            if (result.isSuccess) {
+                                val authenticated = result.getOrThrow()
+                                session = authenticated
+                                SupabaseSessionProvider.session = authenticated
+                                viewModel.loginWithSupabase(authenticated.userId, authenticated.email.orEmpty())
+                            } else {
+                                errorMessage = result.exceptionOrNull()?.message ?: "تعذر تسجيل الدخول."
+                            }
+                            loading = false
+                        }
+                    },
+                ) {
+                    Text("المتابعة باستخدام Google")
+                }
+            }
+            if (!authenticator.isConfigured()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "أكمل إعداد Supabase وGoogle OAuth في local.properties أولاً.",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (!errorMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(errorMessage.orEmpty(), color = MaterialTheme.colorScheme.error)
             }
         }
     }
