@@ -11,6 +11,7 @@
 - Build configuration reads Supabase URL, publishable key, and Google Web OAuth client ID from local properties. Never embed a service-role/secret key in the client.
 
 ## Findings requiring follow-up
+- The admin dashboard previously substituted a fabricated minimum of three orders when today's count was zero. The audit branch now reports the actual zero count instead of inventing activity; verify empty-day dashboard behavior in the UI.
 - Fixed in the audit branch (pending validation/deployment): `updateStore` now calls the atomic `wasil_admin_update_store` RPC instead of separate PATCH + approval requests. The matching draft migration is `202610170008_admin_update_store_atomic.sql` in the customer repository. The migration and admin app change must be reviewed and released together; the RPC has not been applied to live Supabase.
 - The admin UI must treat every repository result as fallible and display failure feedback; a successful-looking form must not imply that a rejected RLS/RPC operation was saved.
 
