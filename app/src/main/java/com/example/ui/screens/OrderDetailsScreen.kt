@@ -599,6 +599,27 @@ fun OrderDetailsScreen(viewModel: AdminViewModel) {
                     HorizontalDivider(color = Slate200)
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    if (order.serviceFee > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(AdminStrings.tr(isArabic, "Service fee", "رسوم الخدمة"), fontSize = 13.sp, color = Slate600)
+                            Text("SDG ${String.format("%.2f", order.serviceFee)}", fontSize = 13.sp, color = Slate700)
+                        }
+                    }
+                    if (order.taxAmount > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(AdminStrings.tr(isArabic, "Tax", "الضريبة"), fontSize = 13.sp, color = Slate600)
+                            Text("SDG ${String.format("%.2f", order.taxAmount)}", fontSize = 13.sp, color = Slate700)
+                        }
+                    }
+
                     // Platform commission is an internal merchant-side amount, not a customer charge.
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
